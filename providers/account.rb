@@ -26,6 +26,8 @@ def load_current_resource
   @manage_home = bool(new_resource.manage_home, node['user']['manage_home'])
   @create_group = bool(new_resource.create_group, node['user']['create_group'])
   @ssh_keygen = bool(new_resource.ssh_keygen, node['user']['ssh_keygen'])
+  @ssh_store_key = bool(new_resource.ssh_store_key, node['user']['ssh_store_key'])
+  @ssh_pull_key = bool(new_resource.ssh_pull_key, node['user']['ssh_pull_key'])
 end
 
 action :create do
@@ -127,6 +129,47 @@ def authorized_keys_resource(exec_action)
   # avoid variable scoping issues in resource block
   ssh_keys = Array(new_resource.ssh_keys)
 
+  if @ssh_pull_key && exec_action == :create then
+    
+    if node.has_key? "cluster" then 
+      
+      if node["cluster"].has_key? "role" then 
+        
+        if node[:cluster][:role] == "slave" then
+    
+          if node[:keys][:ssh][:pulled_master_key] != 'true' then
+             
+            dbmaster = search(:node, "cluster_role:master AND cluster_name:" + node[:cluster][:name])
+            
+            if dbmaster.count > 0 then
+              
+              if dbmaster[0].has_key? "keys" then
+                
+                if dbmaster[0][:keys].has_key? "ssh" then
+                
+                  if dbmaster[0][:keys][:ssh].has_key? new_resource.username then
+                    
+                    ssh_keys = ssh_keys + Array(dbmaster[0][:keys][:ssh][new_resource.username][:dsa_public])
+                    node.set[:keys][:ssh][:pulled_master_key] = 'true'
+                    
+                  end
+                  
+                end
+                
+              end
+              
+            end
+            
+          end
+          
+        end
+      
+      end
+      
+    end
+    
+  end
+
   r = template "#{@my_home}/.ssh/authorized_keys" do
     cookbook    'user'
     source      'authorized_keys.erb'
@@ -160,13 +203,18 @@ def keygen_resource(exec_action)
   end
   e.run_action(:run) if @ssh_keygen && exec_action == :create
   new_resource.updated_by_last_action(true) if e.updated_by_last_action?
-
+  
+  if @ssh_store_key && exec_action == :create then
+    node.set[:keys][:ssh][new_resource.username][:dsa_public] = %x[cat #{my_home}/.ssh/id_dsa.pub].strip
+  end
+  
   if exec_action == :delete then
     ["#{@my_home}/.ssh/id_dsa", "#{@my_home}/.ssh/id_dsa.pub"].each do |keyfile|
       r = file keyfile do
         backup  false
         action :delete
       end
+      node.delete[:keys][:ssh][new_resource.username][:dsa_public]
       new_resource.updated_by_last_action(true) if r.updated_by_last_action?
     end
   end
