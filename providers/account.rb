@@ -129,43 +129,19 @@ def authorized_keys_resource(exec_action)
   # avoid variable scoping issues in resource block
   ssh_keys = Array(new_resource.ssh_keys)
 
-  if @ssh_pull_key && exec_action == :create then
+  if @ssh_pull_key then
     
-    if node.has_key? "cluster" then 
-      
-      if node["cluster"].has_key? "role" then 
-        
-        if node[:cluster][:role] == "slave" then
-    
-          if node[:keys][:ssh][:pulled_master_key] != 'true' then
+    if node.has_key?"cluster" and node["cluster"].has_key?"role" and node[:cluster][:role] == "slave" then
              
-            dbmaster = search(:node, "cluster_role:master AND cluster_name:" + node[:cluster][:name])
+      master = search(:node, "cluster_role:master AND cluster_name:" + node[:cluster][:name])
+      
+      if master.count > 0 and master[0].has_key?"keys" and master[0][:keys].has_key?"ssh" and master[0][:keys][:ssh].has_key?new_resource.username then
             
-            if dbmaster.count > 0 then
-              
-              if dbmaster[0].has_key? "keys" then
-                
-                if dbmaster[0][:keys].has_key? "ssh" then
-                
-                  if dbmaster[0][:keys][:ssh].has_key? new_resource.username then
-                    
-                    ssh_keys = ssh_keys + Array(dbmaster[0][:keys][:ssh][new_resource.username][:dsa_public])
-                    node.set[:keys][:ssh][:pulled_master_key] = 'true'
-                    
-                  end
+        ssh_keys = ssh_keys + Array(master[0][:keys][:ssh][new_resource.username][:dsa_public])
+        node.set[:keys][:ssh][:pulled_master_key] = 'true'
                   
-                end
-                
-              end
-              
-            end
-            
-          end
-          
-        end
-      
-      end
-      
+      end 
+       
     end
     
   end
